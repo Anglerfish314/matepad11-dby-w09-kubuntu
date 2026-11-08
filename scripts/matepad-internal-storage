@@ -1,0 +1,67 @@
+#!/bin/sh
+# matepad-internal-storage - hand the internal 256 GB to Ubuntu.
+#
+# The internal UFS is LUN 0 (/dev/sda) with 40 partitions.  Everything except
+# `userdata` (sda40, ~226 GB, f2fs, HarmonyOS's data partition) belongs to
+# HarmonyOS and must stay untouched - the device only boots HarmonyOS from
+# those, and writing them is how you brick it.
+#
+#   matepad-internal-storage status     show the layout, change nothing
+#   matepad-internal-storage format     *** DESTRUCTIVE *** mkfs.ext4 on sda40
+#   matepad-internal-storage mount      mount sda40 at /data
+#   matepad-internal-storage umount     unmount /data
+#
+# `format` destroys the HarmonyOS user data.  HarmonyOS still boots afterwards
+# (it recreates userdata on first start, i.e. a factory reset), but anything
+# stored inside HarmonyOS is gone.  There is no way back without an EDL
+# backup of LUN 0.
+
+set -e
+
+RETRY=/usr/local/sbin/matepad-ufs-retry
+USERDATA=/dev/sda40
+MNT=/data
+
+ensure_ufs() {
+    if [ ! -b /dev/sda ] && [ -x "$RETRY" ]; then
+        "$RETRY" || true
+    fi
+    if [ ! -b /dev/sda ]; then
+        echo "internal UFS is not up (no /dev/sda)" >&2
+        exit 1
+    fi
+}
+
+case "$1" in
+    status)
+        ensure_ufs
+        lsblk -o NAME,SIZE,FSTYPE,LABEL,PARTLABEL /dev/sda | sed -n '1,12p'
+        echo
+        echo "candidate for Ubuntu: $USERDATA"
+        lsblk -o NAME,SIZE,FSTYPE,PARTLABEL "$USERDATA"
+        ;;
+    format)
+        ensure_ufs
+        if [ "$2" != "--yes-really" ]; then
+            echo "refusing: this erases the HarmonyOS user data on $USERDATA." >&2
+            echo "re-run as: $0 format --yes-really" >&2
+            exit 1
+        fi
+        umount "$MNT" 2>/dev/null || true
+        mkfs.ext4 -L MATEPADDATA -m 1 "$USERDATA"
+        echo "formatted $USERDATA as ext4 (label MATEPADDATA)"
+        ;;
+    mount)
+        ensure_ufs
+        mkdir -p "$MNT"
+        mount -t ext4 "$USERDATA" "$MNT" 2>/dev/null || \
+            mount -t f2fs -o ro "$USERDATA" "$MNT"
+        df -h "$MNT"
+        ;;
+    umount)
+        umount "$MNT"
+        ;;
+    *)
+        sed -n '2,20p' "$0"
+        ;;
+esac

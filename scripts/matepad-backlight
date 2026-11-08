@@ -1,0 +1,69 @@
+#!/bin/sh
+# matepad-backlight - LP8556 backlight control for MatePad 11 (DBY-W09)
+#
+#   matepad-backlight             restore the last brightness
+#   matepad-backlight up          one step brighter
+#   matepad-backlight down        one step darker
+#   matepad-backlight set <0-100> set to a percentage
+#   matepad-backlight raw <0-255> write the register directly (no clamp/state)
+#   matepad-backlight get         print the current raw value
+#
+# The chip is an LP8556 at I2C 0x2c on bus 11; register 0x00 is the 8-bit
+# brightness, register 0x01 is the device control word.
+
+BUS=11
+ADDR=0x2c
+STATE=/var/lib/matepad/brightness
+MIN=8
+MAX=255
+STEP=22
+DEFAULT=115
+
+[ -e "/dev/i2c-$BUS" ] || exit 0
+
+current() {
+    if [ -r "$STATE" ]; then
+        cat "$STATE"
+    else
+        echo "$DEFAULT"
+    fi
+}
+
+write_reg() {
+    i2cset -y -f "$BUS" "$ADDR" 0x01 0x85 >/dev/null 2>&1
+    i2cset -y -f "$BUS" "$ADDR" 0x00 "$(printf '0x%02x' "$1")" >/dev/null 2>&1
+}
+
+apply() {
+    v=$1
+    [ "$v" -lt "$MIN" ] && v=$MIN
+    [ "$v" -gt "$MAX" ] && v=$MAX
+    write_reg "$v"
+    mkdir -p "$(dirname "$STATE")" 2>/dev/null
+    echo "$v" > "$STATE"
+    echo "$v"
+}
+
+case "$1" in
+    up)
+        apply $(( $(current) + STEP ))
+        ;;
+    down)
+        apply $(( $(current) - STEP ))
+        ;;
+    set)
+        pct=${2:-45}
+        [ "$pct" -gt 100 ] && pct=100
+        [ "$pct" -lt 0 ] && pct=0
+        apply $(( pct * MAX / 100 ))
+        ;;
+    raw)
+        write_reg "${2:-0}"
+        ;;
+    get)
+        current
+        ;;
+    *)
+        apply "$(current)"
+        ;;
+esac

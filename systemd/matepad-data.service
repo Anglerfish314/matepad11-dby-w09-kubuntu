@@ -1,0 +1,13 @@
+﻿[Unit]
+Description=MatePad internal storage at /data
+Requires=matepad-ufs-retry.service
+After=matepad-ufs-retry.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/matepad-internal-storage mount
+ExecStop=/usr/local/sbin/matepad-internal-storage umount
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,32 @@
+# 编译产物与二进制不入库
+*.img
+*.img.gz
+*.img.xz
+*.bin
+*.dtb
+*.dtbo
+*.ko
+*.deb
+*.ddeb
+*.tar
+*.tar.gz
+*.AppImage
+
+# 备份
+backup/
+firmware/
+kernel-new/
+flash-set/
+refs/
+
+# 临时
+*.log
+*.tmp
+parts/
+__pycache__/
+*.pyc
+
+# 编辑器
+.vscode/
+.idea/
+*.swp

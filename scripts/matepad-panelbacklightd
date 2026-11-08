@@ -1,0 +1,78 @@
+#!/usr/bin/python3
+"""matepad-panelbacklightd - drive the LP8556 backlight from the panel's DPMS.
+
+The kernel has no driver for this board's backlight, so the LP8556 is driven
+from userspace and DRM cannot blank it with the panel.  Without this daemon the
+backlight stays on (and the battery drains) whenever the screen is blanked:
+Plasma blanks the panel through DPMS long before anything suspends.
+
+It watches /sys/class/drm/card*-DSI-1/dpms and turns the backlight off while
+the panel is off, restoring the saved level when the panel comes back.
+"""
+import glob
+import os
+import subprocess
+import time
+
+BACKLIGHT = "/usr/local/sbin/matepad-backlight"
+POLL = 1.0
+
+
+def log(msg):
+    print("matepad-panelbacklightd: %s" % msg, flush=True)
+
+
+def panel_off():
+    """True while every DSI panel is blanked; None if there is no panel."""
+    states = []
+    for path in glob.glob("/sys/class/drm/card*-DSI-1/dpms"):
+        try:
+            with open(path, "r") as fh:
+                states.append(fh.read().strip())
+        except OSError:
+            continue
+    if not states:
+        return None
+    return all(state != "On" for state in states)
+
+
+def call(*args):
+    try:
+        subprocess.run([BACKLIGHT] + list(args), check=False, timeout=5)
+    except Exception as exc:                                    # noqa: BLE001
+        log("backlight %s failed: %s" % (" ".join(args), exc))
+
+
+def main():
+    saved = None
+    dark = None
+    log("watching the DSI panel DPMS state")
+    while True:
+        off = panel_off()
+        if off is None:
+            time.sleep(5)
+            continue
+        if off != dark:
+            if off:
+                try:
+                    saved = subprocess.run([BACKLIGHT, "get"], check=False,
+                                           capture_output=True, text=True,
+                                           timeout=5).stdout.strip() or None
+                except Exception:                               # noqa: BLE001
+                    saved = None
+                call("raw", "0")
+                log("panel off -> backlight off (saved %s)" % saved)
+            else:
+                if saved:
+                    call("raw", saved)
+                    log("panel on -> backlight %s" % saved)
+                else:
+                    call()
+                    log("panel on -> backlight default")
+                saved = None
+            dark = off
+        time.sleep(POLL)
+
+
+if __name__ == "__main__":
+    main()

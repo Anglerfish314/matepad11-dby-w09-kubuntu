@@ -1,0 +1,108 @@
+#!/usr/bin/python3
+"""matepad-brightnessd - handle the keyboard brightness keys without KDE.
+
+The HUAWEI MatePad Keyboard sends KEY_BRIGHTNESSDOWN (224) for Fn+1 and
+KEY_BRIGHTNESSUP (225) for Fn+2.  Plasma's kglobalaccel is unreliable in this
+image, so this daemon reads the raw input devices and drives the LP8556
+backlight through /usr/local/sbin/matepad-backlight instead.
+"""
+import glob
+import os
+import struct
+import subprocess
+import sys
+import time
+
+EV_KEY = 1
+KEY_BRIGHTNESSDOWN = 224
+KEY_BRIGHTNESSUP = 225
+EVENT_SIZE = struct.calcsize("llHHi")
+BACKLIGHT = "/usr/local/sbin/matepad-backlight"
+
+
+def log(msg):
+    print("matepad-brightnessd: %s" % msg, flush=True)
+
+
+def event_devices():
+    """Return the /dev/input/eventN paths of keyboard-like devices."""
+    found = []
+    try:
+        with open("/proc/bus/input/devices", "r", errors="replace") as fh:
+            blocks = fh.read().split("\n\n")
+    except OSError:
+        return found
+    for block in blocks:
+        if "kbd" not in block and "Keyboard" not in block:
+            continue
+        for line in block.splitlines():
+            if line.startswith("H: Handlers="):
+                for token in line.split("=", 1)[1].split():
+                    if token.startswith("event"):
+                        path = "/dev/input/" + token
+                        if os.path.exists(path):
+                            found.append(path)
+    return sorted(set(found))
+
+
+def run(action):
+    try:
+        subprocess.run([BACKLIGHT, action], check=False, timeout=5)
+    except Exception as exc:                                    # noqa: BLE001
+        log("failed to run %s: %s" % (action, exc))
+
+
+def main():
+    handles = {}
+    log("watching %s" % ", ".join(event_devices() or ["(none)"]))
+    while True:
+        devices = event_devices()
+        for path in devices:
+            if path in handles:
+                continue
+            try:
+                handles[path] = open(path, "rb", buffering=0)
+                log("opened %s" % path)
+            except OSError as exc:
+                log("cannot open %s: %s" % (path, exc))
+        for path in list(handles):
+            if path not in devices:
+                handles.pop(path).close()
+
+        import select
+        if not handles:
+            time.sleep(2)
+            continue
+        try:
+            ready, _, _ = select.select(list(handles.values()), [], [], 2)
+        except (OSError, ValueError):
+            for fh in handles.values():
+                try:
+                    fh.close()
+                except Exception:                               # noqa: BLE001
+                    pass
+            handles.clear()
+            continue
+        for fh in ready:
+            try:
+                data = fh.read(EVENT_SIZE)
+            except OSError:
+                continue
+            if not data or len(data) < EVENT_SIZE:
+                continue
+            _sec, _usec, etype, code, value = struct.unpack("llHHi", data)
+            if etype != EV_KEY or value != 1:
+                continue
+            if code == KEY_BRIGHTNESSDOWN:
+                log("brightness down")
+                run("down")
+            elif code == KEY_BRIGHTNESSUP:
+                log("brightness up")
+                run("up")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)

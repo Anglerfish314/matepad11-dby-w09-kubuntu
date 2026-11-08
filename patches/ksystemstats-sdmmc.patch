@@ -1,0 +1,12 @@
+﻿ksystemstats: also report removable MMC/SD drives in System Monitor
+
+System Monitor showed 0B/0B for the disk because plugins/disks/disks.cpp
+only accepted drives of type HardDisk; the SD card the root lives on is
+SdMmc, so no volume sensor was created at all and the `disk/all/*`
+aggregate sensors stayed at zero.
+
+--- a/plugins/disks/disks.cpp
++++ b/plugins/disks/disks.cpp
+@@ -186,1 +186,1 @@
+-            if (type == Solid::StorageDrive::HardDisk) {
++            if (type == Solid::StorageDrive::HardDisk || type == Solid::StorageDrive::SdMmc) {

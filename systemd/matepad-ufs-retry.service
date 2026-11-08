@@ -1,0 +1,14 @@
+[Unit]
+Description=MatePad internal UFS bring-up (second probe)
+# No dependency on multi-user here: this must run before anything mounts /data,
+# and multi-user.target itself waits for /data (a cycle would otherwise form).
+After=local-fs.target
+Before=data.mount
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/matepad-ufs-retry
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

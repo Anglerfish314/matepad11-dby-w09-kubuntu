@@ -1,0 +1,23 @@
+#!/bin/sh
+# matepad-ufs-retry - bring the internal UFS up after the first probe fails.
+#
+# ufshcd-qcom's first probe at boot dies in link startup ("link startup failed
+# 1"), but a fresh probe right after succeeds and the internal storage shows up
+# as /dev/sda + the extra LUNs. Rebinding the platform device performs that
+# second probe. Nothing here touches the storage's contents.
+
+DRIVER=/sys/bus/platform/drivers/ufshcd-qcom
+DEV=1d84000.ufshc
+
+[ -b /dev/sda ] && exit 0
+[ -d "$DRIVER" ] || exit 0
+
+for _attempt in 1 2 3; do
+    echo "$DEV" > "$DRIVER/unbind" 2>/dev/null
+    sleep 1
+    echo "$DEV" > "$DRIVER/bind" 2>/dev/null
+    sleep 3
+    [ -b /dev/sda ] && exit 0
+done
+
+exit 1
